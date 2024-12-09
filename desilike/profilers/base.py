@@ -10,7 +10,7 @@ from desilike.utils import BaseClass, expand_dict, TaskManager
 from desilike.samples import load_source
 from desilike.samples.profiles import Profiles, ParameterBestFit, ParameterGrid, ParameterProfiles
 from desilike.parameter import ParameterPriorError, Samples, ParameterCollection, is_parameter_sequence
-from desilike.jax import jit, cond, numpy_jax
+from desilike.jax import jit, cond, numpy_jax, exception
 from desilike.jax import numpy as jnp
 
 
@@ -89,7 +89,7 @@ def _iterate_over_params(self, params, method, chi2=None, **kwargs):
         self.mpicomm = tm.mpicomm
         for iparam, param in tm.iterate(list(enumerate(params))):
             self.derived = None
-            profiles = method(start, self.chi2, self.transformed_params, param, **kwargs)
+            profiles = method(start, chi2, self.transformed_params, param, **kwargs)
             list_profiles[iparam] = _profiles_transform(self, profiles) if self.mpicomm.rank == 0 else None
     self.mpicomm = mpicomm_bak
     profiles = Profiles()
@@ -157,7 +157,6 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
         if mpicomm is None:
             mpicomm = likelihood.mpicomm
         self.likelihood = likelihood
-        #self.pipeline = self.likelihood.runtime_info.pipeline
         self.mpicomm = mpicomm
         self.likelihood.solved_default = '.best'
         self.varied_params = self.likelihood.varied_params.deepcopy()
@@ -222,6 +221,10 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
         def compute_logprior(values):
             return jnp.asarray(self.likelihood.all_params.prior(**dict(zip(self.varied_params.names(), values))))
 
+        def warning_nan(logposterior, points):
+            if jnp.isnan(logposterior):
+                warnings.warn('logposterior is NaN for {}'.format(points))
+
         def compute_logposterior(values):
             points = {param.name: value for param, value in zip(self.varied_params, values)}
             raise_error = None
@@ -232,17 +235,18 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
                 import traceback
                 error = (exc, traceback.format_exc())
                 if isinstance(error[0], self.likelihood.catch_errors):
-                    self.log_debug('Error "{}" raised with parameters {} is caught up with -inf loglikelihood. Full stack trace\n{}:'.format(repr(error[0]),
-                                    points, error[1]))
+                    self.log_debug('Error "{}" raised with parameters {} is caught up with -inf loglikelihood. Full stack trace\n{}:'.format(repr(error[0]), points, error[1]))
                 else:
                     raise_error = error
                 if raise_error is None and not self.logger.isEnabledFor(logging.DEBUG):
-                    warnings.warn('Error "{}" raised is caught up with -inf loglikelihood. Set logging level to debug (setup_logging("debug")) to get full stack trace.'.format(repr(error[0])))
+                    warnings.warn('Error "{}" raised with parameters {} is caught up with -inf loglikelihood. Set logging level to debug (setup_logging("debug")) to get full stack trace.'.format(repr(error[0]), points))
                 if raise_error:
-                    raise PipelineError('Error "{}" occured with stack trace:\n{}'.format(*raise_error))
-            return -2. * logposterior
+                    raise PipelineError('Error "{}" occured at {} with stack trace:\n{}'.format(repr(error[0]), points, error[1]))
 
-        return cond(compute_logprior(values) > -np.inf, compute_logposterior, lambda values: -np.inf, values)
+            exception(warning_nan, logposterior, points)
+            return jnp.where(jnp.isnan(logposterior), -np.inf, logposterior)
+
+        return -2. * cond(compute_logprior(values) > -np.inf, compute_logposterior, lambda values: -np.inf, values)
 
     def __getstate__(self):
         state = {}
@@ -276,7 +280,6 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
             import jax
             _vchi2 = jax.jit(chi2)
             _vchi2(start[1], **aux)
-            #raise ValueError
         except:
             if self.mpicomm.rank == 0:
                 self.log_info('Could *not* jit input likelihood.')
@@ -422,7 +425,13 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
                     profiles = _profiles_transform(self, profiles)
                     for param in self.likelihood.all_params.select(fixed=True, derived=False):
                         profiles.bestfit[param] = np.array([param.value], dtype='f8')
-                    derived = vlikelihood(profiles.bestfit.to_dict(params=profiles.bestfit.params(input=True)))[0][1]
+
+                    ret, exc = vlikelihood(profiles.bestfit.to_dict(params=profiles.bestfit.params(input=True)))
+                    for ipoint, error in exc.items():
+                        self.log_warning('Could not get derived parameters, error {}. Full stack trace\n{}:'.format(repr(error[0]), error[1]))
+                    derived = []
+                    if ret is not None:
+                        derived = ret[1]
                     #index_in_profile, index = self.derived[0].match(profiles.bestfit, params=profiles.start.params())
                     #assert index_in_profile[0].size == 1
                     #logposterior = -(self.derived[1][self.likelihood._param_loglikelihood][index] + self.derived[1][self.likelihood._param_logprior][index])
@@ -442,6 +451,7 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
                     profiles = None
                 list_profiles[ii] = profiles
         self.mpicomm = mpicomm_bak
+
         for iprofile, profile in enumerate(list_profiles):
             mpiroot_worker = self.mpicomm.rank if profile is not None else None
             for mpiroot_worker in self.mpicomm.allgather(mpiroot_worker):
@@ -519,6 +529,7 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
             params = [(param1, param2) for iparam1, param1 in enumerate(params) for param2 in params[iparam1 + 1:]]
         params = [(self.varied_params[param1], self.varied_params[param2]) for param1, param2 in params]
         chi2, gradient = self._get_vchi2()
+
         if gradient is not None: kwargs['gradient'] = gradient
         return _iterate_over_params(self, params, self._contour_one, chi2=chi2, cl=cl, **kwargs)
 
@@ -587,7 +598,7 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
         varied_indices = [self.varied_params.index(param) for param in varied_params]  # varied_params ordered as self.varied_params
         grid_indices = [self.varied_params.index(param) for param in grid_params]
         insert_indices = grid_indices - np.arange(len(grid_indices))
-        start = [start[varied_indices] for start in start]
+        start = start[..., varied_indices]
 
         states = {}
         mpicomm_bak = self.mpicomm
@@ -606,15 +617,21 @@ class BaseProfiler(BaseClass, metaclass=RegisteredProfiler):
 
         with TaskManager(nprocs_per_task=nprocs_per_param, use_all_nprocs=True, mpicomm=self.mpicomm) as tm:
             self.mpicomm = tm.mpicomm
+            last_profile = None
             for ipoint in tm.iterate(range(nsamples)):
                 self.derived = None
                 point = get_point(ipoint)
                 if gradient is not None:
                     kwargs['gradient'] = lambda x: gradient(x, point)
+                _start = start
+                if last_profile is not None:
+                    best = last_profile.bestfit.choice(index='argmax', params=varied_params, return_type='nparray')
+                    _start = (start - np.mean(start, axis=0)) / 10. + best  # center around the previous best fit, with reduced dispersion
                 if varied_params:
-                    profile = Profiles.concatenate([self._maximize_one(start, lambda x: chi2(x, point), varied_params, **kwargs) for start in start])
+                    profile = Profiles.concatenate([self._maximize_one(ss, lambda x: chi2(x, point), varied_params, **kwargs) for ss in _start])
                     try:
                         logposterior = profile.bestfit.logposterior.max()
+                        last_profile = profile
                     except AttributeError:
                         logposterior = -np.inf
                 else:

@@ -818,11 +818,15 @@ def test_velocileptors_lpt_rsd():
 def test_velocileptors_rept():
 
     import time
+    from desilike.theories import Cosmoprimo
     from desilike.theories.galaxy_clustering import DirectPowerSpectrumTemplate, REPTVelocileptorsTracerPowerSpectrumMultipoles
 
-    template = DirectPowerSpectrumTemplate()
+    cosmo = Cosmoprimo(fiducial='DESI', engine='isitgr', parameterization='muSigma')
+    cosmo.init.params['mu0'] = {'value': 0.}
+    cosmo.init.params['Sigma0'] = {'value': 0.}
+    template = DirectPowerSpectrumTemplate(cosmo=cosmo)
     k = np.arange(0.005, 0.3, 0.01)
-    z = np.linspace(0.5, 1., 2)
+    z = np.linspace(0.3, 1.5, 4)
     pt = None
     theories = []
     for zz in z:
@@ -831,13 +835,15 @@ def test_velocileptors_rept():
         theory.init.update(pt=pt)
         theories.append(theory)
 
-    params = {'m_ncdm': 1.}
+    #params = {'w0_fld': -0.5, 'wa_fld': -2.}
+    #params = {'m_ncdm': 0.5}
+    params = {'mu0': -1., 'Sigma0': 1.}
     from matplotlib import pyplot as plt
     ax = plt.gca()
     for ith, theory in enumerate(theories):
         power = theory(**params)
         assert np.allclose(theory.z, z[ith])
-        template = DirectPowerSpectrumTemplate(z=z[ith])
+        template = DirectPowerSpectrumTemplate(z=z[ith], cosmo=cosmo)
         ref = REPTVelocileptorsTracerPowerSpectrumMultipoles(template=template, k=k)(**params)
         for ill, ell in enumerate(theory.ells):
             color = 'C{:d}'.format(ith)
@@ -849,6 +855,7 @@ def test_velocileptors_rept():
     ax.set_ylabel(r'$k \Delta P_{\ell}(k)$ [$(\mathrm{Mpc}/h)^{2}$]')
     ax.set_xlabel(r'$k$ [$h/\mathrm{Mpc}$]')
     plt.show()
+    exit()
 
     import time
     from desilike.theories.galaxy_clustering import ShapeFitPowerSpectrumTemplate, REPTVelocileptorsTracerPowerSpectrumMultipoles
@@ -1393,6 +1400,28 @@ def test_ptt():
     print(power().shape, power.varied_params)
 
 
+def test_ptt():
+    from matplotlib import pyplot as plt
+    from desilike.plotting import savefig
+    from desilike.theories.galaxy_clustering import BandVelocityPowerSpectrumTemplate, REPTVelocileptorsTracerPowerSpectrumMultipoles
+    z = 1.
+    dp = 0.01
+    template = BandVelocityPowerSpectrumTemplate(kp=np.linspace(0.01, 0.2, 10), z=z)
+    theory = REPTVelocileptorsTracerPowerSpectrumMultipoles(tracer='LRG', ells=(0,), template=template)
+    ax = plt.gca()
+    for i, param in enumerate(theory.varied_params.select(name='dptt*')):
+        pk1 = theory({param.name: dp + 1.})[0]  # 0: monopole
+        pklin1 = template.pk_tt
+        pk0 = theory({param.name: 1.})[0]
+        pklin0 = template.pk_tt
+        ax.plot(template.k, (pklin1 - pklin0) / pklin0 / dp, color='k')
+        ax.plot(theory.k, (pk1 - pk0) / pk0 / dp, color='C{:d}'.format(i))
+    ax.set_xlim(theory.k[0], theory.k[-1])
+    ax.set_xlabel('$k [h/\mathrm{Mpc}]$')
+    ax.set_ylabel('dln(P)/dp')
+    savefig('test_ptt.png')
+
+
 def test_emulator_direct():
     import time
     from desilike.theories import Cosmoprimo
@@ -1780,7 +1809,7 @@ if __name__ == '__main__':
     #test_velocileptors_rept()
     #test_pybird()
     #test_folps()
-    test_folpsax()
+    #test_folpsax()
     #test_velocileptors_omegak()
     #test_params()
     #test_integ()
@@ -1799,7 +1828,7 @@ if __name__ == '__main__':
     #test_png()
     #test_pk_to_xi()
     #test_ap_diff()
-    #test_ptt()
+    test_ptt()
     #test_freedom()
     #test_bao_phaseshift()
     #comparison_folps_velocileptors()
