@@ -4,7 +4,7 @@
 
 changes compared to original desilike pipeline
    - add __FOLPSRCTracerPowerSpectrumMultipoles__ template to model the effect of redshift catastrophics on the power spectrum multipoles
-   - add __ResummedBAOWigglesTracerPowerSpectrumMultipoles___ to model the DT void-void correlations
+   - add __ResummedBAOWigglesTracerPowerSpectrumMultipoles__ to model the DT void-void correlations
 
 **desilike** is an attempt to provide a common framework for writing DESI likelihoods,
 that can be imported in common cosmological inference codes (Cobaya, CosmoSIS, MontePython).
