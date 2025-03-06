@@ -1088,8 +1088,9 @@ class TaskManager(BaseClass):
         self.nworkers = isplit + 1
         # split the comm between the workers
         self.mpicomm = self.basecomm.Split(self.worker, 0)
+        self.rootcomm = self.basecomm.Split(int(self.basecomm.rank == self.self_worker_ranks[0]), 0)
         if self.mpicomm.rank == 0:
-            self.log_info('Entering {} with {:d} workers.'.format(self.__class__.__name__, self.nworkers))
+            self.log_debug('Entering {} with {:d} workers.'.format(self.__class__.__name__, self.nworkers))
 
     @property
     def size(self):
@@ -1138,6 +1139,14 @@ class TaskManager(BaseClass):
         start, stop = self.worker * size // self.nworkers, (self.worker + 1) * size // self.nworkers
         return tasks[start:stop]
 
+    def reduce(self, li, root=0):
+        """Reduce to root."""
+        return self.rootcomm.reduce(li, root=root)
+
+    def allreduce(self, li):
+        """Reduce to all ranks."""
+        return self.basecomm.bcast(self.reduce(li), root=0)
+
     def map(self, func, tasks):
         """
         Apply a function to all of the values in a list and return the list of results.
@@ -1164,7 +1173,4 @@ class TaskManager(BaseClass):
             The list of the return values of ``function``.
         """
         results = map(func, self.iterate(tasks))
-        results = self.mpicomm.allgather(results)
-        toret = []
-        for result in results: toret += result
-        return np.asarray(toret)
+        return np.asarray(self.allreduce(results))
