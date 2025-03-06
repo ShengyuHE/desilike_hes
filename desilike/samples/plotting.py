@@ -617,8 +617,10 @@ def plot_triangle_contours(profiles, params=None, labels=None, colors=None, line
         max_nticks = 5
         factor = 2
         pltdim = factor * nrows
-        lbdim = 0.5 * factor  # size of left/bottom margin
-        trdim = 0.2 * factor  # size of top/right margin
+        # lbdim = 0.5 * factor  # size of left/bottom margin
+        # trdim = 0.2 * factor  # size of top/right margin
+        lbdim = 0.3 * factor  # size of left/bottom margin
+        trdim = 0.1 * factor  # size of top/right margin
         dim = lbdim + pltdim + trdim
         figsize = figsize or (dim, dim)
         #fig, lax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(dim, dim))
