@@ -454,6 +454,9 @@ class ParameterArray(numpy.lib.mixins.NDArrayOperatorsMixin):
     def __len__(self):
         return len(self.value)
 
+    def __bool__(self):
+        return self.value.__bool__()
+
     def __iter__(self):
         values = self.value.__iter__()  # to raise TypeError in case of 0d array
         # yield would not raise an error in case of 0d array
@@ -862,7 +865,7 @@ class Parameter(BaseClass):
     @property
     def input(self):
         """Whether parameter should be fed as input to calculator."""
-        return ((self._derived is False) or isinstance(self._derived, str)) and not self.drop and not self.depends
+        return ((self._derived is False) or isinstance(self._derived, str)) and not self.depends
 
     @property
     def name(self):
@@ -1234,21 +1237,13 @@ class BaseParameterCollection(BaseClass):
 
     def __contains__(self, name):
         """Whether collection contains parameter ``name``."""
-        return self._get_name(name) in (self._get_name(item) for item in self.data)
+        try:
+            self._index_name(self._get_name(name))
+            return True
+        except KeyError:
+            return False
 
-    def select(self, **kwargs):
-        """
-        Return new collection, after selection of parameters whose attribute match input values::
-
-            collection.select(fixed=True)
-
-        returns collection of fixed parameters.
-        If 'name' is provided, consider all matching parameters, e.g.::
-
-            collection.select(varied=True, name='a_[0:2]')
-
-        returns a collection of varied parameters, with name in ``['a_0', 'a_1']``.
-        """
+    def _select(self, **kwargs):
         toret = self.copy()
         if not kwargs:
             return toret
@@ -1273,9 +1268,24 @@ class BaseParameterCollection(BaseClass):
                 toret.data.append(item)
         return toret
 
+    def select(self, **kwargs):
+        """
+        Return new collection, after selection of parameters whose attribute match input values::
+
+            collection.select(fixed=True)
+
+        returns collection of fixed parameters.
+        If 'name' is provided, consider all matching parameters, e.g.::
+
+            collection.select(varied=True, name='a_[0:2]')
+
+        returns a collection of varied parameters, with name in ``['a_0', 'a_1']``.
+        """
+        return self._select(**kwargs)
+
     def params(self, **kwargs):
         """Return :class:`ParameterCollection`, collection of parameters corresponding to items stored in this collection."""
-        return ParameterCollection([self._get_param(item) for item in self.select(**kwargs)])
+        return ParameterCollection([self._get_param(item) for item in self._select(**kwargs)])
 
     def names(self, **kwargs):
         """Return parameter names in collection."""
@@ -1367,15 +1377,15 @@ class BaseParameterCollection(BaseClass):
 
     def keys(self, **kwargs):
         """Return parameter names."""
-        return [self._get_name(item) for item in self.select(**kwargs)]
+        return [self._get_name(item) for item in self._select(**kwargs)]
 
     def values(self, **kwargs):
         """Return items."""
-        return [item for item in self.select(**kwargs)]
+        return [item for item in self._select(**kwargs)]
 
     def items(self, **kwargs):
         """Return list of tuples (parameter name, item)."""
-        return [(self._get_name(item), item) for item in self.select(**kwargs)]
+        return [(self._get_name(item), item) for item in self._select(**kwargs)]
 
     def deepcopy(self):
         """Deep copy."""
@@ -1869,7 +1879,7 @@ class ParameterCollection(BaseParameterCollection):
         for param in self:
             try:
                 toret[param.name] = param.eval(**params)
-            except KeyError:
+            except (ParameterError, KeyError):
                 pass
         return toret
 
@@ -2336,6 +2346,8 @@ class Samples(BaseParameterCollection):
                 if isinstance(name, Parameter):
                     item.param = name
                 else:
+                    if item.param is None:
+                        item.param = Parameter(name)
                     item.param = item.param.clone(name=name)
                 #raise KeyError('Parameter {} must be indexed by name (incorrect {})'.format(item_name, name))
             self.set(item)

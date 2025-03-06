@@ -96,7 +96,7 @@ class Bins(object):
         weighted by `l(l+1)/2pi`.
         Return Cb
         """
-        spectra = np.asarray(spectra)
+        spectra = jnp.asarray(spectra)
         minlmax = np.min([spectra.shape[-1] - 1, self.lmax])
 
         _p, _q = self._bin_operators()
@@ -370,7 +370,7 @@ class LollipopLikelihood(object):
         x = (self.cldata[m]*cal + self.cloff[m]) / (clth + self.cloff[m])
         g = jnp.sign(x) * ghl(jnp.abs(x))
 
-        X = (np.sqrt(self.clfid[m] + self.cloff[m])) * g * (np.sqrt(self.clfid[m] + self.cloff[m]))
+        X = (jnp.sqrt(self.clfid[m] + self.cloff[m])) * g * (jnp.sqrt(self.clfid[m] + self.cloff[m]))
 
         if self.marginalised_over_covariance:
             # marginalised over S = Ceff
@@ -390,11 +390,12 @@ class LollipopLikelihood(object):
         return -0.5 * chi2
 
 
-class LowlEEPlanck2020LollipopLikelihood(BaseGaussianLikelihood):
+class EELowlPlanck2020LollipopLikelihood(BaseGaussianLikelihood):
 
     config_fn = 'lollipop.yaml'
-    installer_section = 'LowlEEPlanck2020LowllipopLikelihood'
+    installer_section = 'EELowlPlanck2020lollipopLikelihood'
     cls = ['ee', 'bb']
+    name = 'EELowlPlanck2020lollipop'
 
     def initialize(self, theory=None, cosmo=None, data_dir=None):
         if data_dir is None:
@@ -465,11 +466,11 @@ class LowlEEPlanck2020LollipopLikelihood(BaseGaussianLikelihood):
         installer.write({cls.installer_section: {'data_dir': data_dir}})
 
 
-class LowlEBPlanck2020LollipopLikelihood(LowlEEPlanck2020LollipopLikelihood):
+class EBLowlPlanck2020LollipopLikelihood(EELowlPlanck2020LollipopLikelihood):
 
-    pass
+    name = 'EBLowlPlanck2020lollipop'
 
 
-class LowlBBPlanck2020LollipopLikelihood(LowlEEPlanck2020LollipopLikelihood):
+class BBLowlPlanck2020LollipopLikelihood(EELowlPlanck2020LollipopLikelihood):
 
-    pass
+    name = 'BBLowlPlanck2020lollipop'

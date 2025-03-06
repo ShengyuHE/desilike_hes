@@ -323,10 +323,11 @@ class BaseLikelihood(BaseCalculator):
             #pipeline.more_calculate = lambda: None
             fisher = self.__fisher
 
-            if fisher is None or fisher.mpicomm is not self.mpicomm:
+            if fisher is None or fisher.mpicomm is not self.mpicomm or fisher.solved_default is not self.solved_default:
                 #if self.fisher is not None: print(self.fisher.mpicomm is not self.mpicomm, self.fisher.varied_params != solved_params)
                 fisher = FastFisher(self, self.__solved_params)
                 fisher.mpicomm = self.mpicomm
+                fisher.solved_default = self.solved_default
 
                 marg_indices = []
                 for iparam, param in enumerate(fisher.solved_params):
@@ -394,7 +395,7 @@ class BaseLikelihood(BaseCalculator):
             # sum_loglikelihood += 1. / 2. * len(marg_indices) * np.log(2. * np.pi)
             # Convention: in the limit of no likelihood constraint on dx, no change to the loglikelihood
             # This allows to ~ keep the interpretation in terms of -1. / 2. * chi2
-            ip = jnp.diag(prior_hessian)[fisher.marg_indices]
+            #ip = jnp.diag(prior_hessian)[fisher.marg_indices]
             #marg_likelihood += 1. / 2. * jnp.sum(jnp.log(jnp.where(ip < 0, -ip, 1.)))  # logdet
             # sum_loglikelihood -= 1. / 2. * len(marg_indices) * np.log(2. * np.pi)
             if derived is not None:
